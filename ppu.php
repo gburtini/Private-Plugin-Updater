@@ -58,6 +58,7 @@ if(!function_exists("ppu_easy_updater"))
 
       $plugin->version = $plugin_current_version;
       $ppu = new PPU_Updater($plugin, $update_url, $kvs_or_optionname);
+      return $ppu;
    }
 }
 
@@ -149,11 +150,10 @@ if(!class_exists("PPU_Updater")) {
          if(is_object($this->kvs))
             $update_cache = $this->kvs->get("update_cache");
          else if(is_string($this->kvs))
-            $update_cache = update_option($this->kvs, $update);
+            $update_cache = get_option($this->kvs);
          else
             return false;
 
-         var_dump($update_cache);
          if(!is_object($update_cache) || time() - $update_cache->time > $cache_period)
             return false;
 
@@ -171,6 +171,7 @@ if(!class_exists("PPU_Updater")) {
       public $package;
 
       // for the info script.
+      public $new_version;
       public $version;
       public $requires;
       public $tested;
