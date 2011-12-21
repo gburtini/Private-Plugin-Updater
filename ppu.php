@@ -1,5 +1,7 @@
 <?php
 /*
+ * Copyright © 2011 Giuseppe Burtini <joe@truephp.com>. All rights reserved.
+ *
  * Very simple update class. Implements updates for non-WordPress codex plugins, in
  * the form of a remote hosted JSON file (just like the codex uses).
  *
@@ -11,19 +13,46 @@
    $plugin->version = 1;
    $ppu = new PPU_Updater($plugin, "http://www.yoursite.com/update.json");
 
+ * OR, just call:
+
+   ppu_easy_updater("madeupplugin.php", 1, "http://www.yoursite.com/update.json");
+
+ * You can set this up as early as outside of any actions, but you should definitely
+ * do it in init at the latest.
  *
- * Note, that as this is written right now, it makes the call to yoursite.com on
- * every single page load. You will want to change this to be caching before deploying it.
+ * The JSON file at update.json must contain name, slug (must match slug above), package (the URL to download the ZIP)
+ * and version (to be compared according to version_compare).
+ *
+ * Note, that as this example is written right now, it makes the call to yoursite.com on
+ * every single page load. You can now implement a cache by passing in a KVS object (see my WPKVS class) or a
+ * string for the option name you wish to store data in and it will be stored for PPU_CACHE_PERIOD
  */
+
+if(!defined("PPU_CACHE_PERIOD"))
+   define("PPU_CACHE_PERIOD", 60*60*24);
+
+function ppu_easy_updater($plugin_file, $plugin_current_version, $update_url, $plugin_slug=null, $kvs_or_optionname=null) {
+   $plugin = new PPU_Plugin();
+   $plugin->file = $plugin_file;
+   if($plugin_slug !== null)
+      $plugin->slug = $plugin_slug;
+   else
+      $plugin->slug = basename($plugin_file);
+
+   $plugin->version = $plugin_current_version;
+   $ppu = new PPU_Updater($plugin, $update_url, $kvs_or_optionname);
+}
+
 class PPU_Updater {
    private $plugin;
    private $update;
    private $checkURL;
+   private $kvs;
 
-   function __construct($plugin, $checkURL) {
+   function __construct($plugin, $checkURL, $kvs_or_optionname=null) {
       $this->plugin = $plugin;
       $this->checkURL = $checkURL;
-
+      $this->kvs = $kvs_or_optionname;
       // set up hooks
       add_filter("plugins_api", array(&$this, "plugins_api"), 10, 3);
       add_filter("site_transient_update_plugins", array(&$this, "site_transient_update_plugins"));
@@ -66,6 +95,9 @@ class PPU_Updater {
       if(isset($this->update) && !$force)
          return $this->update;
 
+      if(false !== ($cache = $this->loadCache()))
+         return $cache;
+
       add_action("ppu_checking_update", $this->plugin);
 
       $url = add_query_arg(
@@ -77,10 +109,36 @@ class PPU_Updater {
       if(!is_wp_error($result))
       {
          $this->update = new PPU_Plugin($result['body']);
+         $this->storeCache($this->update);
          return $this->update;
       }
 
       return false;
+   }
+
+   private function storeCache($update) {
+      $store = (object) array('time'=>time(), 'update'=>$update);
+      if(is_object($this->kvs))
+         $this->kvs->set("update_cache", $store);
+      else if(is_string($this->kvs))
+         update_option($this->kvs, $store);
+   }
+
+   private function loadCache() {
+      $cache_period = PPU_CACHE_PERIOD;
+
+      if(is_object($this->kvs))
+         $update_cache = $this->kvs->get("update_cache");
+      else if(is_string($this->kvs))
+         $update_cache = update_option($this->kvs, $update);
+      else
+         return false;
+
+      var_dump($update_cache);
+      if(!is_object($update_cache) || time() - $update_cache->time > $cache_period)
+         return false;
+
+      return $update_cache->update;
    }
 
 }
@@ -90,12 +148,15 @@ class PPU_Plugin {
    public $name;
    public $slug;
 
-   public $new_version;
+   // for the update script
    public $package;
 
+   // for the info script.
    public $version;
    public $requires;
    public $tested;
+   public $author;
+   
    public $rating;
    public $upgrade_notice;
    public $num_ratings;
@@ -103,9 +164,7 @@ class PPU_Plugin {
    public $homepage;
    public $last_updated;
 
-   public $url;
-   public $download_link;
-   public $author;
+   public $download_url;
    public $sections = array();
 
    function __construct($json=null) {
