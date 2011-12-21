@@ -31,156 +31,161 @@
 if(!defined("PPU_CACHE_PERIOD"))
    define("PPU_CACHE_PERIOD", 60*60*24);
 
-function ppu_easy_updater($plugin_file, $plugin_current_version, $update_url, $plugin_slug=null, $kvs_or_optionname=null) {
-   $plugin = new PPU_Plugin();
-   $plugin->file = $plugin_file;
-   if($plugin_slug !== null)
-      $plugin->slug = $plugin_slug;
-   else
-      $plugin->slug = basename($plugin_file);
-
-   $plugin->version = $plugin_current_version;
-   $ppu = new PPU_Updater($plugin, $update_url, $kvs_or_optionname);
-}
-
-class PPU_Updater {
-   private $plugin;
-   private $update;
-   private $checkURL;
-   private $kvs;
-
-   function __construct($plugin, $checkURL, $kvs_or_optionname=null) {
-      $this->plugin = $plugin;
-      $this->checkURL = $checkURL;
-      $this->kvs = $kvs_or_optionname;
-      // set up hooks
-      add_filter("plugins_api", array(&$this, "plugins_api"), 10, 3);
-      add_filter("site_transient_update_plugins", array(&$this, "site_transient_update_plugins"));
-   }
-
-   /*
-    * returns the relevant update data to the WordPress.org update check
-    */
-   public function plugins_api($deprecated, $action=null, $args=null) {
-      if($action != "plugin_information")
-        return false;
-
-      if($args->slug != $this->plugin->slug)
-         return false;
-
-      add_action("ppu_adding_plugin_info", $this->plugin);
-
-      $obj = $this->checkUpdate();
-      return (object) $obj;
-   }
-
-   /*
-    * adds the update nag to the plugins screen
-    */
-   public function site_transient_update_plugins($value) {
-      add_action("ppu_adding_nag", $this->plugin);
-
-      $update = $this->checkUpdate();
-
-      if($update === null)
-         return $value;
-
-      if(version_compare($this->plugin->version, $update->version, "<"))
-         $value->response[$this->plugin->file] = (object) $update;
-
-      return $value;
-   }
-
-   public function checkUpdate($force=false) {
-      if(isset($this->update) && !$force)
-         return $this->update;
-
-      if(false !== ($cache = $this->loadCache()))
-         return $cache;
-
-      add_action("ppu_checking_update", $this->plugin);
-
-      $url = add_query_arg(
-         // this filter allows you to add licensing functionality (send the license along with the json request).
-         apply_filters("ppu_update_arguments", array("version" => $this->plugin->version))
-      , $this->checkURL);
-
-		$result = wp_remote_get($url);
-      if(!is_wp_error($result))
-      {
-         $this->update = new PPU_Plugin($result['body']);
-         $this->storeCache($this->update);
-         return $this->update;
-      }
-
-      return false;
-   }
-
-   private function storeCache($update) {
-      $store = (object) array('time'=>time(), 'update'=>$update);
-      if(is_object($this->kvs))
-         $this->kvs->set("update_cache", $store);
-      else if(is_string($this->kvs))
-         update_option($this->kvs, $store);
-   }
-
-   private function loadCache() {
-      $cache_period = PPU_CACHE_PERIOD;
-
-      if(is_object($this->kvs))
-         $update_cache = $this->kvs->get("update_cache");
-      else if(is_string($this->kvs))
-         $update_cache = update_option($this->kvs, $update);
+if(!function_exists("ppu_easy_updater"))
+{
+   function ppu_easy_updater($plugin_file, $plugin_current_version, $update_url, $plugin_slug=null, $kvs_or_optionname=null) {
+      $plugin = new PPU_Plugin();
+      $plugin->file = $plugin_file;
+      if($plugin_slug !== null)
+         $plugin->slug = $plugin_slug;
       else
-         return false;
+         $plugin->slug = basename($plugin_file);
 
-      var_dump($update_cache);
-      if(!is_object($update_cache) || time() - $update_cache->time > $cache_period)
-         return false;
-
-      return $update_cache->update;
+      $plugin->version = $plugin_current_version;
+      $ppu = new PPU_Updater($plugin, $update_url, $kvs_or_optionname);
    }
-
 }
 
-// just a storage container for all the relevant variables.
-class PPU_Plugin {
-   public $name;
-   public $slug;
+if(!class_exists("PPU_Updater")) {
+   class PPU_Updater {
+      private $plugin;
+      private $update;
+      private $checkURL;
+      private $kvs;
 
-   // for the update script
-   public $package;
-
-   // for the info script.
-   public $version;
-   public $requires;
-   public $tested;
-   public $author;
-   
-   public $rating;
-   public $upgrade_notice;
-   public $num_ratings;
-   public $downloaded;
-   public $homepage;
-   public $last_updated;
-
-   public $download_url;
-   public $sections = array();
-
-   function __construct($json=null) {
-      if($json !== null)
-         $this->loadJSON($json);
-   }
-   private function castSectionsToArray()
-   {
-      $this->sections = get_object_vars($this->sections);
-   }
-   public function loadJSON($json) {
-      $response = get_object_vars(json_decode($json));
-      foreach(($response) as $name=>$value)
-      {
-         $this->$name = $value;
+      function __construct($plugin, $checkURL, $kvs_or_optionname=null) {
+         $this->plugin = $plugin;
+         $this->checkURL = $checkURL;
+         $this->kvs = $kvs_or_optionname;
+         // set up hooks
+         add_filter("plugins_api", array(&$this, "plugins_api"), 10, 3);
+         add_filter("site_transient_update_plugins", array(&$this, "site_transient_update_plugins"));
       }
-      $this->castSectionsToArray();
+
+      /*
+      * returns the relevant update data to the WordPress.org update check
+      */
+      public function plugins_api($deprecated, $action=null, $args=null) {
+         if($action != "plugin_information")
+         return false;
+
+         if($args->slug != $this->plugin->slug)
+            return false;
+
+         add_action("ppu_adding_plugin_info", $this->plugin);
+
+         $obj = $this->checkUpdate();
+         return (object) $obj;
+      }
+
+      /*
+      * adds the update nag to the plugins screen
+      */
+      public function site_transient_update_plugins($value) {
+         add_action("ppu_adding_nag", $this->plugin);
+
+         $update = $this->checkUpdate();
+
+         if($update === null)
+            return $value;
+
+         if(version_compare($this->plugin->version, $update->version, "<"))
+            $value->response[$this->plugin->file] = (object) $update;
+
+         return $value;
+      }
+
+      public function checkUpdate($force=false) {
+         if(isset($this->update) && !$force)
+            return $this->update;
+
+         if(false !== ($cache = $this->loadCache()))
+            return $cache;
+
+         add_action("ppu_checking_update", $this->plugin);
+
+         $url = add_query_arg(
+            // this filter allows you to add licensing functionality (send the license along with the json request).
+            apply_filters("ppu_update_arguments", array("version" => $this->plugin->version))
+         , $this->checkURL);
+
+         $result = wp_remote_get($url);
+         if(!is_wp_error($result))
+         {
+            $this->update = new PPU_Plugin($result['body']);
+            $this->storeCache($this->update);
+            return $this->update;
+         }
+
+         return false;
+      }
+
+      private function storeCache($update) {
+         $store = (object) array('time'=>time(), 'update'=>$update);
+         if(is_object($this->kvs))
+            $this->kvs->set("update_cache", $store);
+         else if(is_string($this->kvs))
+            update_option($this->kvs, $store);
+      }
+
+      private function loadCache() {
+         $cache_period = PPU_CACHE_PERIOD;
+
+         if(is_object($this->kvs))
+            $update_cache = $this->kvs->get("update_cache");
+         else if(is_string($this->kvs))
+            $update_cache = update_option($this->kvs, $update);
+         else
+            return false;
+
+         var_dump($update_cache);
+         if(!is_object($update_cache) || time() - $update_cache->time > $cache_period)
+            return false;
+
+         return $update_cache->update;
+      }
+
+   }
+
+   // just a storage container for all the relevant variables.
+   class PPU_Plugin {
+      public $name;
+      public $slug;
+
+      // for the update script
+      public $package;
+
+      // for the info script.
+      public $version;
+      public $requires;
+      public $tested;
+      public $author;
+
+      public $rating;
+      public $upgrade_notice;
+      public $num_ratings;
+      public $downloaded;
+      public $homepage;
+      public $last_updated;
+
+      public $download_url;
+      public $sections = array();
+
+      function __construct($json=null) {
+         if($json !== null)
+            $this->loadJSON($json);
+      }
+      private function castSectionsToArray()
+      {
+         $this->sections = get_object_vars($this->sections);
+      }
+      public function loadJSON($json) {
+         $response = get_object_vars(json_decode($json));
+         foreach(($response) as $name=>$value)
+         {
+            $this->$name = $value;
+         }
+         $this->castSectionsToArray();
+      }
    }
 }
