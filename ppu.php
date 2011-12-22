@@ -83,7 +83,7 @@ if(!class_exists("PPU_Updater")) {
       */
       public function plugins_api($deprecated, $action=null, $args=null) {
          if($action != "plugin_information")
-         return false;
+            return false;
 
          if($args->slug != $this->plugin->slug)
             return false;
