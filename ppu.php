@@ -102,7 +102,7 @@ if(!class_exists("PPU_Updater")) {
 
          $update = $this->checkUpdate();
 
-         if($update === null)
+         if(!is_object($update))
             return $value;
 
          if(version_compare($this->plugin->version, $update->version, "<"))
